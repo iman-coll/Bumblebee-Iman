@@ -1,10 +1,13 @@
 """Streamlit entry point for the Bumblebee Pakistan History Quiz.
 
-This root launcher keeps the original quiz in Bumblebee_quiz_app/app.py while making
-its animated laundromat graphic completely self-contained. No external image host
-is required at runtime.
+The original quiz lives in Bumblebee_quiz_app/app.py. This lightweight launcher
+keeps that code as the single quiz source while replacing its remote animation
+image with an embedded SVG. The compiled source is cached so every Streamlit
+rerun does not repeatedly read/compile the large quiz file.
 """
 from pathlib import Path
+
+import streamlit as st
 
 APP_DIR = Path(__file__).resolve().parent / "Bumblebee_quiz_app"
 SOURCE = APP_DIR / "app.py"
@@ -12,12 +15,8 @@ SOURCE = APP_DIR / "app.py"
 if not SOURCE.exists():
     raise FileNotFoundError(f"Quiz application not found: {SOURCE}")
 
-source = SOURCE.read_text(encoding="utf-8")
-
-# Replace the old remote Picsum background with an inline SVG data URI.
-# The SVG is embedded in the Python source, so Streamlit Cloud does not need
-# an internet request to display the animated machine.
-self_contained_svg = (
+# Local SVG: no external image request and no dependency on Picsum.
+SELF_CONTAINED_SVG = (
     "data:image/svg+xml;utf8,"
     "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E"
     "%3Cdefs%3E%3CradialGradient id='g' cx='50%25' cy='45%25' r='60%25'%3E"
@@ -35,9 +34,21 @@ self_contained_svg = (
     "%3C/svg%3E"
 )
 
-old_url = "https://picsum.photos/seed/laundromat/200/200"
-source = source.replace(old_url, self_contained_svg)
 
-# Execute the original app as the Streamlit entry point.
-# The original quiz questions and UI remain unchanged except for the local graphic.
-exec(compile(source, str(SOURCE), "exec"), {"__name__": "__main__", "__file__": str(SOURCE)})
+@st.cache_resource(show_spinner=False)
+def get_compiled_app():
+    """Read, replace the remote image, and compile the quiz source once."""
+    source = SOURCE.read_text(encoding="utf-8")
+    source = source.replace(
+        "https://picsum.photos/seed/laundromat/200/200",
+        SELF_CONTAINED_SVG,
+    )
+    return compile(source, str(SOURCE), "exec")
+
+
+# Run the original quiz. Streamlit reruns the execution state normally, while
+# the expensive file-read/compile step above stays cached for the process.
+exec(
+    get_compiled_app(),
+    {"__name__": "__main__", "__file__": str(SOURCE)},
+)
